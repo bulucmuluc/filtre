@@ -3,6 +3,7 @@ import re
 import asyncio
 from dotenv import load_dotenv
 from pyrogram import Client, filters
+from pyrogram.types import Message
 
 load_dotenv()
 
@@ -43,12 +44,49 @@ def normalize(text):
     return text
 
 # ----------------------------
-# SADECE REGEX LINK YAKALAMA
+# REGEX LINK YAKALAMA
 # ----------------------------
-def extract_links(message):
+def extract_links_regex(message: Message):
     text = message.text or message.caption or ""
     pattern = r"\[([^\]]+)\]\((https?://[^\)]+)\)"
     return re.findall(pattern, text)
+
+# ----------------------------
+# ENTITY LINK YAKALAMA (ÖNEMLİ)
+# ----------------------------
+def extract_links_entity(message: Message):
+    results = []
+
+    text = message.text or message.caption or ""
+
+    if message.entities:
+        for entity in message.entities:
+            if entity.type == "text_link":
+                start = entity.offset
+                end = start + entity.length
+                title = text[start:end]
+                results.append((title, entity.url))
+
+    if message.caption_entities:
+        for entity in message.caption_entities:
+            if entity.type == "text_link":
+                start = entity.offset
+                end = start + entity.length
+                title = text[start:end]
+                results.append((title, entity.url))
+
+    return results
+
+# ----------------------------
+# TÜM LINKLERİ ÇEK
+# ----------------------------
+def extract_links(message: Message):
+    links = []
+
+    links.extend(extract_links_regex(message))
+    links.extend(extract_links_entity(message))
+
+    return links
 
 # ----------------------------
 # KANALI INDEXLE
