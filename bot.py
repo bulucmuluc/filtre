@@ -34,46 +34,28 @@ async def cache_channel_messages(client, message):
     if not raw_text:
         return
 
-    print("KANAL MESAJI GELDİ:", raw_text)
-
-    dizi_ismi = None
-
-    # 1️⃣ Markdown formatı varsa
+    # Markdown varsa içini al
     match = re.search(r"\[(.*?)\]\((.*?)\)", raw_text)
     if match:
         dizi_ismi = match.group(1)
-
-    # 2️⃣ Entity varsa (her tip)
-    elif message.entities or message.caption_entities:
-        entities = message.entities or message.caption_entities
-
-        for entity in entities:
-            # entity türü ne olursa olsun text kısmını al
-            dizi_ismi = raw_text[entity.offset: entity.offset + entity.length]
-            break
-
-    # 3️⃣ Hiçbiri yoksa düz yazıyı al
     else:
         dizi_ismi = raw_text
 
-    if dizi_ismi:
-        channel_cache[message.id] = {
-            "name": normalize(dizi_ismi),
-            "message_id": message.id
-        }
+    channel_cache[message.id] = {
+        "name": normalize(dizi_ismi),
+        "original_name": dizi_ismi
+    }
 
-        print("CACHELENDİ:", dizi_ismi)
+    print("CACHELENDİ:", dizi_ismi)
 
 
 # ---------------- SİLME ----------------
 async def delete_after_delay(client, chat_id, bot_msg_id, user_msg_id):
     await asyncio.sleep(600)
-
     try:
         await client.delete_messages(chat_id, [bot_msg_id, user_msg_id])
-        print("MESAJLAR SİLİNDİ")
-    except Exception as e:
-        print("SİLME HATASI:", e)
+    except:
+        pass
 
 
 # ---------------- GRUP DİNLE ----------------
@@ -83,31 +65,29 @@ async def group_listener(client, message):
     user_text = normalize(message.text)
     user_words = user_text.split()
 
-    print("GRUP MESAJI:", user_text)
-    print("CACHE:", channel_cache)
+    matches = []
 
     for data in channel_cache.values():
         for word in user_words:
             if word in data["name"]:
+                matches.append(data["original_name"])
+                break
 
-                print("EŞLEŞME BULUNDU")
+    if matches:
 
-                sent = await client.forward_messages(
-                    chat_id=message.chat.id,
-                    from_chat_id=SOURCE_CHANNEL,
-                    message_ids=data["message_id"]
-                )
+        response_text = "Hangisini izlemek istiyorsun?\n\n"
+        response_text += "\n".join(matches)
 
-                asyncio.create_task(
-                    delete_after_delay(
-                        client,
-                        message.chat.id,
-                        sent.id,
-                        message.id
-                    )
-                )
+        sent = await message.reply(response_text)
 
-                return
+        asyncio.create_task(
+            delete_after_delay(
+                client,
+                message.chat.id,
+                sent.id,
+                message.id
+            )
+        )
 
 
 print("BOT BAŞLADI")
