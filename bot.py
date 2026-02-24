@@ -40,13 +40,44 @@ def extract_markdown(text):
 
 
 # Kanalı ID ile indexle
+async def get_last_message_id():
+    low = 1
+    high = 1000000  # başlangıç tahmini
+
+    # önce high değerini bul
+    while True:
+        try:
+            msg = await app.get_messages(SOURCE_CHANNEL, high)
+            if msg and not msg.empty:
+                low = high
+                high *= 2
+            else:
+                break
+        except:
+            break
+
+    # şimdi binary search
+    while low < high:
+        mid = (low + high) // 2
+        try:
+            msg = await app.get_messages(SOURCE_CHANNEL, mid)
+            if msg and not msg.empty:
+                low = mid + 1
+            else:
+                high = mid
+        except:
+            high = mid
+
+    return low - 1
+
+
 async def index_channel():
     global LAST_INDEXED_ID
 
-    print("INDEX BAŞLADI")
+    print("Son mesaj ID aranıyor...")
+    last_msg_id = await get_last_message_id()
 
-    last_msg = await app.get_messages(SOURCE_CHANNEL, -1)
-    last_msg_id = last_msg.id
+    print(f"Son mesaj ID bulundu: {last_msg_id}")
 
     current = LAST_INDEXED_ID
 
@@ -68,7 +99,7 @@ async def index_channel():
         current += 1
 
     LAST_INDEXED_ID = last_msg_id + 1
-    print(f"Index bitti. Cache: {len(cache)}")
+    print(f"Index tamamlandı. Cache: {len(cache)}")
 
 # Yeni mesaj geldiğinde otomatik cache'e ekle
 @app.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
