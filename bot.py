@@ -3,7 +3,6 @@ import re
 import asyncio
 from dotenv import load_dotenv
 from pyrogram import Client, filters
-from pyrogram.errors import FloodWait
 
 load_dotenv()
 
@@ -11,14 +10,8 @@ API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 STRING_SESSION = os.getenv("STRING_SESSION")
-SOURCE_CHANNEL = os.getenv("SOURCE_CHANNEL")
+SOURCE_CHANNEL = int(os.getenv("SOURCE_CHANNEL"))
 
-if SOURCE_CHANNEL.lstrip("-").isdigit():
-    SOURCE_CHANNEL = int(SOURCE_CHANNEL)
-
-# ----------------------------
-# CLIENTLER
-# ----------------------------
 bot = Client(
     "bot",
     api_id=API_ID,
@@ -50,36 +43,19 @@ def normalize(text):
     return text
 
 # ----------------------------
-# LINK YAKALAMA (TEXT + CAPTION)
+# SADECE REGEX LINK YAKALAMA
 # ----------------------------
 def extract_links(message):
-    results = []
-
     text = message.text or message.caption or ""
-    entities = message.entities or message.caption_entities or []
-
-    # TEXT_LINK entity
-    for entity in entities:
-        if entity.type == "text_link":
-            title = text[entity.offset: entity.offset + entity.length]
-            url = entity.url
-            results.append((title.strip(), url.strip()))
-
-    # Raw markdown
-    pattern = r"\[(.*?)\]\((.*?)\)"
-    matches = re.findall(pattern, text)
-    for title, url in matches:
-        results.append((title.strip(), url.strip()))
-
-    return results
+    pattern = r"\[([^\]]+)\]\((https?://[^\)]+)\)"
+    return re.findall(pattern, text)
 
 # ----------------------------
-# KANALI INDEXLE (USERBOT)
+# KANALI INDEXLE
 # ----------------------------
 async def index_channel():
     print("Index başlıyor...")
 
-    # Peer resolve fix
     await user.get_chat(SOURCE_CHANNEL)
 
     async for msg in user.get_chat_history(SOURCE_CHANNEL):
@@ -89,25 +65,22 @@ async def index_channel():
 
         indexed_ids.add(msg.id)
 
-        if not (msg.text or msg.caption):
-            continue
-
         links = extract_links(msg)
 
         if links:
-            print(f"Mesaj {msg.id} -> {len(links)} link bulundu")
+            print(f"Mesaj {msg.id} bulundu: {links}")
 
         for title, url in links:
             if not any(x["url"] == url for x in cache):
                 cache.append({
-                    "title": title,
-                    "url": url
+                    "title": title.strip(),
+                    "url": url.strip()
                 })
 
     print("Index tamamlandı. Cache:", len(cache))
 
 # ----------------------------
-# YENİ MESAJLARI OTOMATİK CACHE
+# YENİ MESAJLAR OTOMATİK
 # ----------------------------
 @user.on_message(filters.chat(SOURCE_CHANNEL))
 async def auto_cache(_, message):
@@ -117,37 +90,30 @@ async def auto_cache(_, message):
 
     indexed_ids.add(message.id)
 
-    if not (message.text or message.caption):
-        return
-
     links = extract_links(message)
 
     for title, url in links:
         if not any(x["url"] == url for x in cache):
             cache.append({
-                "title": title,
-                "url": url
+                "title": title.strip(),
+                "url": url.strip()
             })
             print("Yeni içerik eklendi. Cache:", len(cache))
 
 # ----------------------------
-# GRUP ARAMA (BOT)
+# GRUP ARAMA
 # ----------------------------
 @bot.on_message(filters.group & filters.text)
 async def search_handler(client, message):
 
     if not cache:
-        print("Cache boş.")
         return
 
     query = normalize(message.text)
-
     results = []
 
     for item in cache:
-        title_norm = normalize(item["title"])
-
-        if query in title_norm or title_norm in query:
+        if query in normalize(item["title"]):
             results.append(f"[{item['title']}]({item['url']})")
 
     if not results:
@@ -161,7 +127,6 @@ async def search_handler(client, message):
         disable_web_page_preview=True
     )
 
-    # 10 dakika sonra sil
     await asyncio.sleep(600)
 
     try:
