@@ -87,19 +87,19 @@ def extract_links(message):
     if not text:
         return results
 
-    # 1️⃣ Markdown link
-    md_pattern = r"\[([^\]]+)\]\(([^)]+)\)"
-    results.extend(re.findall(md_pattern, text))
+    # Sadece markdown formatı: [Başlık](link)
+    pattern = r"\[([^\]]+)\]\(([^)]+)\)"
 
-    # 2️⃣ http/https link
-    http_pattern = r"(https?://[^\s]+)"
-    for url in re.findall(http_pattern, text):
-        results.append((url, url))
+    matches = re.findall(pattern, text)
 
-    # 3️⃣ t.me link (http olmadan)
-    tme_pattern = r"(t\.me/[^\s]+)"
-    for url in re.findall(tme_pattern, text):
-        results.append((url, "https://" + url))
+    for title, url in matches:
+        url = url.strip()
+
+        # Eğer http yoksa ekle
+        if not url.startswith("http"):
+            url = "https://" + url
+
+        results.append((title.strip(), url))
 
     return results
 # ----------------------------
