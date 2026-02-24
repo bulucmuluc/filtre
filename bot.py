@@ -34,19 +34,19 @@ async def cache_channel_messages(client, message):
     if not raw_text:
         return
 
-    # Markdown varsa içini al
     match = re.search(r"\[(.*?)\]\((.*?)\)", raw_text)
+
     if match:
         dizi_ismi = match.group(1)
-    else:
-        dizi_ismi = raw_text
+        link = match.group(2)
 
-    channel_cache[message.id] = {
-        "name": normalize(dizi_ismi),
-        "original_name": dizi_ismi
-    }
+        channel_cache[message.id] = {
+            "name": normalize(dizi_ismi),
+            "original_name": dizi_ismi,
+            "url": link
+        }
 
-    print("CACHELENDİ:", dizi_ismi)
+        print("CACHELENDİ:", dizi_ismi)
 
 
 # ---------------- SİLME ----------------
@@ -70,15 +70,20 @@ async def group_listener(client, message):
     for data in channel_cache.values():
         for word in user_words:
             if word in data["name"]:
-                matches.append(data["original_name"])
+                matches.append(data)
                 break
 
     if matches:
 
         response_text = "Hangisini izlemek istiyorsun?\n\n"
-        response_text += "\n".join(matches)
 
-        sent = await message.reply(response_text)
+        for item in matches:
+            response_text += f"[{item['original_name']}]({item['url']})\n"
+
+        sent = await message.reply(
+            response_text,
+            disable_web_page_preview=True
+        )
 
         asyncio.create_task(
             delete_after_delay(
