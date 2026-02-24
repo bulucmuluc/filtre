@@ -2,7 +2,7 @@ import os
 import re
 import asyncio
 from dotenv import load_dotenv
-from pyrogram import Client, filters, idle
+from pyrogram import Client, filters
 from pyrogram.errors import FloodWait
 
 load_dotenv()
@@ -10,17 +10,26 @@ load_dotenv()
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+SESSION_STRING = os.getenv("SESSION_STRING")
 SOURCE_CHANNEL = int(os.getenv("SOURCE_CHANNEL"))
 
-app = Client(
-    "filterbot",
+# USERBOT
+user = Client(
+    "user_session",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    session_string=SESSION_STRING
+)
+
+# BOT
+bot = Client(
+    "bot_session",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
 
 cache = []
-LAST_INDEXED_ID = 0
 
 
 # -------------------------------------------------
@@ -38,7 +47,7 @@ def normalize(text):
 
 
 # -------------------------------------------------
-# Markdown + Entity link yakalama
+# Markdown link çıkar
 # -------------------------------------------------
 def extract_links(message):
     results = []
@@ -46,35 +55,27 @@ def extract_links(message):
     if not message.text:
         return results
 
-    # Entity text_link
     if message.entities:
         for entity in message.entities:
             if entity.type == "text_link":
                 title = message.text[entity.offset: entity.offset + entity.length]
-                url = entity.url
-                results.append((title.strip(), url.strip()))
+                results.append((title.strip(), entity.url.strip()))
 
-    # Markdown fallback
     pattern = r"\[(.*?)\]\((.*?)\)"
     matches = re.findall(pattern, message.text)
-    for m in matches:
-        results.append((m[0].strip(), m[1].strip()))
+    results.extend(matches)
 
     return results
 
 
 # -------------------------------------------------
-# Kanalı indexle (SAĞLAM YÖNTEM)
+# USERBOT → Kanalı indexle
 # -------------------------------------------------
 async def index_channel():
-    global LAST_INDEXED_ID
-
-    print("Index başlıyor...")
+    print("Index başlıyor (USERBOT)...")
     cache.clear()
 
-    async for msg in app.get_chat_history(SOURCE_CHANNEL):
-        LAST_INDEXED_ID = max(LAST_INDEXED_ID, msg.id)
-
+    async for msg in user.get_chat_history(SOURCE_CHANNEL):
         if msg.text:
             links = extract_links(msg)
             for title, url in links:
@@ -88,17 +89,10 @@ async def index_channel():
 
 
 # -------------------------------------------------
-# Yeni mesaj gelince otomatik cache
+# USERBOT → Yeni mesajları cache ekle
 # -------------------------------------------------
-@app.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
+@user.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
 async def auto_add(client, message):
-    global LAST_INDEXED_ID
-
-    if message.id <= LAST_INDEXED_ID:
-        return
-
-    LAST_INDEXED_ID = message.id
-
     links = extract_links(message)
 
     for title, url in links:
@@ -112,22 +106,18 @@ async def auto_add(client, message):
 
 
 # -------------------------------------------------
-# Tüm gruplarda arama
+# BOT → Gruplarda arama
 # -------------------------------------------------
-@app.on_message(filters.group & filters.text)
+@bot.on_message(filters.group & filters.text)
 async def search_handler(client, message):
     if not cache:
         return
 
     query = normalize(message.text)
-    print("Arama:", query, "Cache:", len(cache))
-
     results = []
 
     for item in cache:
-        title_norm = normalize(item["title"])
-
-        if query in title_norm or title_norm in query:
+        if query in normalize(item["title"]):
             results.append(f"[{item['title']}]({item['url']})")
 
     if not results:
@@ -154,11 +144,16 @@ async def search_handler(client, message):
 # MAIN
 # -------------------------------------------------
 async def main():
-    await app.start()
-    print("Bot başladı.")
+    await user.start()
+    await bot.start()
+
+    print("Userbot + Bot başladı.")
+
     await index_channel()
-    print("Bot aktif.")
-    await idle()
+
+    print("Sistem aktif.")
+
+    await asyncio.Event().wait()
 
 
-app.run(main())
+asyncio.run(main())
