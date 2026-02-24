@@ -1,129 +1,126 @@
-import re
 import os
-import unicodedata
+import re
 import asyncio
-from pyrogram import Client, filters
 from dotenv import load_dotenv
+from pyrogram import Client, filters
+from pyrogram.errors import FloodWait
+from pyrogram import idle
 
 load_dotenv()
 
-api_id = int(os.getenv("API_ID"))
-api_hash = os.getenv("API_HASH")
-bot_token = os.getenv("BOT_TOKEN")
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 SOURCE_CHANNEL = int(os.getenv("SOURCE_CHANNEL"))
 
-app = Client("matcher_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
+app = Client(
+    "filterbot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
 
-channel_cache = {}
+cache = []
+LAST_INDEXED_ID = 1
 
 
-# ---------------- NORMALIZE ----------------
+# Türkçe normalize
 def normalize(text):
     text = text.lower()
-    text = unicodedata.normalize("NFKD", text)
-    text = text.encode("ascii", "ignore").decode("utf-8")
-    text = re.sub(r"[^a-z0-9 ]", " ", text)
-    return text.strip()
+    text = text.replace("ı", "i").replace("ş", "s")
+    text = text.replace("ğ", "g").replace("ü", "u")
+    text = text.replace("ö", "o").replace("ç", "c")
+    return text
 
 
-# ---------------- KANAL MESAJINDAN İSİM + LİNK ÇIKAR ----------------
-def extract_name_and_link(message):
-    raw_text = message.text or message.caption
-    if not raw_text:
-        return None, None
-
-    # 1️⃣ Markdown formatı
-    match = re.search(r"\[(.*?)\]\((.*?)\)", raw_text)
-    if match:
-        return match.group(1), match.group(2)
-
-    # 2️⃣ Telegram text_link entity
-    entities = message.entities or message.caption_entities
-    if entities:
-        for entity in entities:
-            if entity.type == "text_link":
-                name = raw_text[entity.offset: entity.offset + entity.length]
-                return name, entity.url
-
-    return None, None
+# Markdown link yakalama
+def extract_markdown(text):
+    pattern = r"\[(.*?)\]\((.*?)\)"
+    return re.findall(pattern, text)
 
 
-# ---------------- BOT BAŞLANGIÇTA KANAL GEÇMİŞİNİ ÇEK ----------------
-async def load_channel_history():
-    async for message in app.get_chat_history(SOURCE_CHANNEL):
-        name, link = extract_name_and_link(message)
-        if name and link:
-            channel_cache[message.id] = {
-                "name": normalize(name),
-                "original_name": name,
-                "url": link
-            }
-    print("Kanal cache yüklendi:", len(channel_cache))
+# Kanalı ID ile indexle
+async def index_channel():
+    global LAST_INDEXED_ID
+
+    print("INDEX BAŞLADI")
+
+    chat = await app.get_chat(SOURCE_CHANNEL)
+    last_msg_id = chat.last_message_id
+
+    current = LAST_INDEXED_ID
+
+    while current <= last_msg_id:
+        try:
+            msg = await app.get_messages(SOURCE_CHANNEL, current)
+        except FloodWait as e:
+            await asyncio.sleep(e.value)
+            continue
+        except:
+            current += 1
+            continue
+
+        if msg and msg.text:
+            links = extract_markdown(msg.text)
+            for title, url in links:
+                cache.append({
+                    "title": title,
+                    "url": url
+                })
+
+        current += 1
+
+    LAST_INDEXED_ID = last_msg_id + 1
+    print(f"Index bitti. Cache: {len(cache)}")
 
 
-# ---------------- SİLME ----------------
-async def delete_after_delay(chat_id, bot_msg_id, user_msg_id):
-    await asyncio.sleep(600)
-    try:
-        await app.delete_messages(chat_id, [bot_msg_id, user_msg_id])
-    except:
-        pass
+# Yeni mesaj geldiğinde otomatik cache'e ekle
+@app.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
+async def auto_add(client, message):
+    if message.text:
+        links = extract_markdown(message.text)
+        for title, url in links:
+            cache.append({
+                "title": title,
+                "url": url
+            })
+        print("Yeni içerik cache'e eklendi.")
 
 
-# ---------------- KANAL YENİ MESAJLARI ----------------
-@app.on_message(filters.chat(SOURCE_CHANNEL))
-async def cache_new_messages(client, message):
-    name, link = extract_name_and_link(message)
-    if name and link:
-        channel_cache[message.id] = {
-            "name": normalize(name),
-            "original_name": name,
-            "url": link
-        }
-
-
-# ---------------- GRUP DİNLE ----------------
+# Tüm gruplarda arama yap
 @app.on_message(filters.group & filters.text)
-async def group_listener(client, message):
+async def search_handler(client, message):
+    query = normalize(message.text)
 
-    user_text = normalize(message.text)
-    user_words = user_text.split()
+    results = []
 
-    matches = []
+    for item in cache:
+        if query in normalize(item["title"]):
+            results.append(f"[{item['title']}]({item['url']})")
 
-    for data in channel_cache.values():
-        for word in user_words:
-            if word in data["name"]:
-                matches.append(data)
-                break
-
-    if matches:
-        response_text = "Hangisini izlemek istiyorsun?\n\n"
-
-        for item in matches:
-            response_text += f"[{item['original_name']}]({item['url']})\n"
+    if results:
+        text = "Hangisini izlemek istiyorsun?\n\n"
+        text += "\n".join(results[:10])
 
         sent = await message.reply(
-            response_text,
+            text,
             disable_web_page_preview=True
         )
 
-        asyncio.create_task(
-            delete_after_delay(
-                message.chat.id,
-                sent.id,
-                message.id
-            )
-        )
+        await asyncio.sleep(600)
+
+        try:
+            await sent.delete()
+            await message.delete()
+        except:
+            pass
 
 
-# ---------------- ÇALIŞTIR ----------------
 async def main():
     await app.start()
-    await load_channel_history()
-    print("BOT ÇALIŞIYOR")
+    await index_channel()
+    print("BOT AKTİF")
     await idle()
 
-from pyrogram import idle
 
 app.run(main())
