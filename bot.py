@@ -10,31 +10,35 @@ load_dotenv()
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-SESSION_STRING = os.getenv("SESSION_STRING")
-SOURCE_CHANNEL = int(os.getenv("SOURCE_CHANNEL"))
+STRING_SESSION = os.getenv("STRING_SESSION")
+SOURCE_CHANNEL = os.getenv("SOURCE_CHANNEL")
 
-# USERBOT
-user = Client(
-    "user_session",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    session_string=SESSION_STRING
-)
+if SOURCE_CHANNEL.lstrip("-").isdigit():
+    SOURCE_CHANNEL = int(SOURCE_CHANNEL)
 
-# BOT
+# ----------------------------
+# CLIENTLER
+# ----------------------------
 bot = Client(
-    "bot_session",
+    "bot",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
 
+user = Client(
+    "user",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    session_string=STRING_SESSION
+)
+
 cache = []
+indexed_ids = set()
 
-
-# -------------------------------------------------
-# Türkçe normalize
-# -------------------------------------------------
+# ----------------------------
+# TÜRKÇE NORMALIZE
+# ----------------------------
 def normalize(text):
     text = text.lower()
     replacements = {
@@ -45,79 +49,85 @@ def normalize(text):
         text = text.replace(k, v)
     return text
 
-
-# -------------------------------------------------
-# Markdown link çıkar
-# -------------------------------------------------
+# ----------------------------
+# MARKDOWN LINK YAKALAMA
+# ----------------------------
 def extract_links(message):
     results = []
-
-    if not message.text:
-        return results
 
     if message.entities:
         for entity in message.entities:
             if entity.type == "text_link":
                 title = message.text[entity.offset: entity.offset + entity.length]
-                results.append((title.strip(), entity.url.strip()))
+                url = entity.url
+                results.append((title, url))
 
     pattern = r"\[(.*?)\]\((.*?)\)"
-    matches = re.findall(pattern, message.text)
+    matches = re.findall(pattern, message.text or "")
     results.extend(matches)
 
     return results
 
-
-# -------------------------------------------------
-# USERBOT → Kanalı indexle
-# -------------------------------------------------
+# ----------------------------
+# KANALI INDEXLE (USERBOT)
+# ----------------------------
 async def index_channel():
-    print("Index başlıyor (USERBOT)...")
-    cache.clear()
+    print("Index başlıyor...")
+
+    await user.get_chat(SOURCE_CHANNEL)  # peer resolve fix
 
     async for msg in user.get_chat_history(SOURCE_CHANNEL):
+        if msg.id in indexed_ids:
+            continue
+
+        indexed_ids.add(msg.id)
+
         if msg.text:
             links = extract_links(msg)
             for title, url in links:
-                if not any(x["url"] == url for x in cache):
-                    cache.append({
-                        "title": title,
-                        "url": url
-                    })
+                cache.append({
+                    "title": title,
+                    "url": url
+                })
 
     print("Index tamamlandı. Cache:", len(cache))
 
-
-# -------------------------------------------------
-# USERBOT → Yeni mesajları cache ekle
-# -------------------------------------------------
+# ----------------------------
+# YENİ MESAJLARI OTOMATİK CACHE
+# ----------------------------
 @user.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
-async def auto_add(client, message):
-    links = extract_links(message)
+async def auto_cache(_, message):
+    if message.id in indexed_ids:
+        return
 
+    indexed_ids.add(message.id)
+
+    links = extract_links(message)
     for title, url in links:
-        if not any(x["url"] == url for x in cache):
-            cache.append({
-                "title": title,
-                "url": url
-            })
+        cache.append({
+            "title": title,
+            "url": url
+        })
 
     print("Yeni içerik eklendi. Cache:", len(cache))
 
-
-# -------------------------------------------------
-# BOT → Gruplarda arama
-# -------------------------------------------------
+# ----------------------------
+# GRUP ARAMA (BOT)
+# ----------------------------
 @bot.on_message(filters.group & filters.text)
 async def search_handler(client, message):
+
     if not cache:
         return
 
     query = normalize(message.text)
+
     results = []
 
     for item in cache:
-        if query in normalize(item["title"]):
+        title_norm = normalize(item["title"])
+
+        if query in title_norm or title_norm in query:
             results.append(f"[{item['title']}]({item['url']})")
 
     if not results:
@@ -131,6 +141,7 @@ async def search_handler(client, message):
         disable_web_page_preview=True
     )
 
+    # 10 dakika sonra sil
     await asyncio.sleep(600)
 
     try:
@@ -139,10 +150,9 @@ async def search_handler(client, message):
     except:
         pass
 
-
-# -------------------------------------------------
+# ----------------------------
 # MAIN
-# -------------------------------------------------
+# ----------------------------
 async def main():
     await user.start()
     await bot.start()
@@ -155,5 +165,5 @@ async def main():
 
     await asyncio.Event().wait()
 
-
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
