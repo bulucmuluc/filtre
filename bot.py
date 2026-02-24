@@ -1,78 +1,164 @@
-from pyrogram import Client, filters, idle
-from pyrogram.types import Message
 import os
+import re
+import asyncio
+from dotenv import load_dotenv
+from pyrogram import Client, filters, idle
+from pyrogram.errors import FloodWait
 
-api_id = int(os.getenv("API_ID"))
-api_hash = os.getenv("API_HASH")
-bot_token = os.getenv("BOT_TOKEN")
+load_dotenv()
 
-SOURCE_CHANNEL = -1001694852731  # kendi kanal ID'n
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+SOURCE_CHANNEL = int(os.getenv("SOURCE_CHANNEL"))
 
-app = Client("bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
+app = Client(
+    "filterbot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
 
-CACHE_DB = {}
+cache = []
+LAST_INDEXED_ID = 0
 
-# ================= LINK OLUŞTUR =================
-def build_link(message_id):
-    # Private kanal için
-    channel_id = str(SOURCE_CHANNEL).replace("-100", "")
-    return f"https://t.me/c/{channel_id}/{message_id}"
 
-# ================= CACHE EKLE =================
-async def add_to_cache(message: Message):
-    if message.text:
-        link = build_link(message.id)
+# -------------------------------------------------
+# Türkçe normalize
+# -------------------------------------------------
+def normalize(text):
+    text = text.lower()
+    replacements = {
+        "ı": "i", "ş": "s", "ğ": "g",
+        "ü": "u", "ö": "o", "ç": "c"
+    }
+    for k, v in replacements.items():
+        text = text.replace(k, v)
+    return text
 
-        CACHE_DB[message.id] = {
-            "text": message.text,
-            "link": link
-        }
 
-# ================= INDEX =================
+# -------------------------------------------------
+# Markdown + Entity link yakalama
+# -------------------------------------------------
+def extract_links(message):
+    results = []
+
+    if not message.text:
+        return results
+
+    # Entity text_link
+    if message.entities:
+        for entity in message.entities:
+            if entity.type == "text_link":
+                title = message.text[entity.offset: entity.offset + entity.length]
+                url = entity.url
+                results.append((title.strip(), url.strip()))
+
+    # Markdown fallback
+    pattern = r"\[(.*?)\]\((.*?)\)"
+    matches = re.findall(pattern, message.text)
+    for m in matches:
+        results.append((m[0].strip(), m[1].strip()))
+
+    return results
+
+
+# -------------------------------------------------
+# Kanalı indexle (SAĞLAM YÖNTEM)
+# -------------------------------------------------
 async def index_channel():
+    global LAST_INDEXED_ID
+
     print("Index başlıyor...")
+    cache.clear()
 
     async for msg in app.get_chat_history(SOURCE_CHANNEL):
-        await add_to_cache(msg)
+        LAST_INDEXED_ID = max(LAST_INDEXED_ID, msg.id)
 
-    print(f"Index tamamlandı. Toplam: {len(CACHE_DB)} mesaj")
+        if msg.text:
+            links = extract_links(msg)
+            for title, url in links:
+                if not any(x["url"] == url for x in cache):
+                    cache.append({
+                        "title": title,
+                        "url": url
+                    })
 
-# ================= YENİ MESAJ =================
-@app.on_message(filters.chat(SOURCE_CHANNEL))
-async def new_message(client, message: Message):
-    before = len(CACHE_DB)
+    print("Index tamamlandı. Cache:", len(cache))
 
-    await add_to_cache(message)
 
-    after = len(CACHE_DB)
+# -------------------------------------------------
+# Yeni mesaj gelince otomatik cache
+# -------------------------------------------------
+@app.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
+async def auto_add(client, message):
+    global LAST_INDEXED_ID
 
-    print(f"Yeni içerik eklendi. Cache: {after - before}")
+    if message.id <= LAST_INDEXED_ID:
+        return
 
-# ================= ARAMA =================
-@app.on_message(filters.private)
-async def search_handler(client, message: Message):
-    query = message.text.lower()
+    LAST_INDEXED_ID = message.id
+
+    links = extract_links(message)
+
+    for title, url in links:
+        if not any(x["url"] == url for x in cache):
+            cache.append({
+                "title": title,
+                "url": url
+            })
+
+    print("Yeni içerik eklendi. Cache:", len(cache))
+
+
+# -------------------------------------------------
+# Tüm gruplarda arama
+# -------------------------------------------------
+@app.on_message(filters.group & filters.text)
+async def search_handler(client, message):
+    if not cache:
+        return
+
+    query = normalize(message.text)
+    print("Arama:", query, "Cache:", len(cache))
 
     results = []
 
-    for data in CACHE_DB.values():
-        if query in data["text"].lower():
-            results.append(f"[{data['text'][:40]}...]({data['link']})")
+    for item in cache:
+        title_norm = normalize(item["title"])
+
+        if query in title_norm or title_norm in query:
+            results.append(f"[{item['title']}]({item['url']})")
 
     if not results:
-        await message.reply("Sonuç bulunamadı.")
         return
 
     text = "Hangisini izlemek istiyorsun?\n\n"
     text += "\n".join(results[:10])
 
-    await message.reply(text, disable_web_page_preview=True)
+    sent = await message.reply(
+        text,
+        disable_web_page_preview=True
+    )
 
-# ================= MAIN =================
+    await asyncio.sleep(600)
+
+    try:
+        await sent.delete()
+        await message.delete()
+    except:
+        pass
+
+
+# -------------------------------------------------
+# MAIN
+# -------------------------------------------------
 async def main():
     await app.start()
+    print("Bot başladı.")
     await index_channel()
-    print("Bot hazır.")
+    print("Bot aktif.")
     await idle()
+
 
 app.run(main())
