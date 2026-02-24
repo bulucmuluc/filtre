@@ -50,21 +50,26 @@ def normalize(text):
     return text
 
 # ----------------------------
-# MARKDOWN LINK YAKALAMA
+# LINK YAKALAMA (TEXT + CAPTION)
 # ----------------------------
 def extract_links(message):
     results = []
 
-    if message.entities:
-        for entity in message.entities:
-            if entity.type == "text_link":
-                title = message.text[entity.offset: entity.offset + entity.length]
-                url = entity.url
-                results.append((title, url))
+    text = message.text or message.caption or ""
+    entities = message.entities or message.caption_entities or []
 
+    # TEXT_LINK entity
+    for entity in entities:
+        if entity.type == "text_link":
+            title = text[entity.offset: entity.offset + entity.length]
+            url = entity.url
+            results.append((title.strip(), url.strip()))
+
+    # Raw markdown
     pattern = r"\[(.*?)\]\((.*?)\)"
-    matches = re.findall(pattern, message.text or "")
-    results.extend(matches)
+    matches = re.findall(pattern, text)
+    for title, url in matches:
+        results.append((title.strip(), url.strip()))
 
     return results
 
@@ -74,17 +79,26 @@ def extract_links(message):
 async def index_channel():
     print("Index başlıyor...")
 
-    await user.get_chat(SOURCE_CHANNEL)  # peer resolve fix
+    # Peer resolve fix
+    await user.get_chat(SOURCE_CHANNEL)
 
     async for msg in user.get_chat_history(SOURCE_CHANNEL):
+
         if msg.id in indexed_ids:
             continue
 
         indexed_ids.add(msg.id)
 
-        if msg.text:
-            links = extract_links(msg)
-            for title, url in links:
+        if not (msg.text or msg.caption):
+            continue
+
+        links = extract_links(msg)
+
+        if links:
+            print(f"Mesaj {msg.id} -> {len(links)} link bulundu")
+
+        for title, url in links:
+            if not any(x["url"] == url for x in cache):
                 cache.append({
                     "title": title,
                     "url": url
@@ -95,21 +109,26 @@ async def index_channel():
 # ----------------------------
 # YENİ MESAJLARI OTOMATİK CACHE
 # ----------------------------
-@user.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
+@user.on_message(filters.chat(SOURCE_CHANNEL))
 async def auto_cache(_, message):
+
     if message.id in indexed_ids:
         return
 
     indexed_ids.add(message.id)
 
-    links = extract_links(message)
-    for title, url in links:
-        cache.append({
-            "title": title,
-            "url": url
-        })
+    if not (message.text or message.caption):
+        return
 
-    print("Yeni içerik eklendi. Cache:", len(cache))
+    links = extract_links(message)
+
+    for title, url in links:
+        if not any(x["url"] == url for x in cache):
+            cache.append({
+                "title": title,
+                "url": url
+            })
+            print("Yeni içerik eklendi. Cache:", len(cache))
 
 # ----------------------------
 # GRUP ARAMA (BOT)
@@ -118,6 +137,7 @@ async def auto_cache(_, message):
 async def search_handler(client, message):
 
     if not cache:
+        print("Cache boş.")
         return
 
     query = normalize(message.text)
