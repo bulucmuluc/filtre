@@ -1,181 +1,78 @@
-import os
-import re
-import asyncio
-from dotenv import load_dotenv
 from pyrogram import Client, filters, idle
-from pyrogram.errors import FloodWait
+from pyrogram.types import Message
+import os
 
-load_dotenv()
+api_id = int(os.getenv("API_ID"))
+api_hash = os.getenv("API_HASH")
+bot_token = os.getenv("BOT_TOKEN")
 
-API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-SOURCE_CHANNEL = int(os.getenv("SOURCE_CHANNEL"))
+SOURCE_CHANNEL = -1001694852731  # kendi kanal ID'n
 
-app = Client(
-    "filterbot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
-)
+app = Client("bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
 
-cache = []
-LAST_INDEXED_ID = 1
+CACHE_DB = {}
 
+# ================= LINK OLUŞTUR =================
+def build_link(message_id):
+    # Private kanal için
+    channel_id = str(SOURCE_CHANNEL).replace("-100", "")
+    return f"https://t.me/c/{channel_id}/{message_id}"
 
-# -------------------------------------------------
-# Türkçe normalize
-# -------------------------------------------------
-def normalize(text):
-    text = text.lower()
-    replacements = {
-        "ı": "i", "ş": "s", "ğ": "g",
-        "ü": "u", "ö": "o", "ç": "c"
-    }
-    for k, v in replacements.items():
-        text = text.replace(k, v)
-    return text
+# ================= CACHE EKLE =================
+async def add_to_cache(message: Message):
+    if message.text:
+        link = build_link(message.id)
 
+        CACHE_DB[message.id] = {
+            "text": message.text,
+            "link": link
+        }
 
-# -------------------------------------------------
-# Markdown + Entity link yakalama
-# -------------------------------------------------
-def extract_links(message):
-    results = []
-
-    if message.entities:
-        for entity in message.entities:
-            if entity.type == "text_link":
-                title = message.text[entity.offset: entity.offset + entity.length]
-                url = entity.url
-                results.append((title, url))
-
-    pattern = r"\[(.*?)\]\((.*?)\)"
-    matches = re.findall(pattern, message.text or "")
-    results.extend(matches)
-
-    return results
-
-
-# -------------------------------------------------
-# Son mesaj ID bulma (arttırarak deneme)
-# -------------------------------------------------
-async def get_last_message_id():
-    test_id = 1
-    step = 1000
-
-    while True:
-        try:
-            msg = await app.get_messages(SOURCE_CHANNEL, test_id)
-            if msg and not msg.empty:
-                test_id += step
-            else:
-                break
-        except:
-            break
-
-    return test_id
-
-
-# -------------------------------------------------
-# Kanalı indexle
-# -------------------------------------------------
+# ================= INDEX =================
 async def index_channel():
-    global LAST_INDEXED_ID
-
     print("Index başlıyor...")
 
-    last_msg_id = await get_last_message_id()
-    print("Tahmini son ID:", last_msg_id)
+    async for msg in app.get_chat_history(SOURCE_CHANNEL):
+        await add_to_cache(msg)
 
-    current = LAST_INDEXED_ID
+    print(f"Index tamamlandı. Toplam: {len(CACHE_DB)} mesaj")
 
-    while current <= last_msg_id:
-        try:
-            msg = await app.get_messages(SOURCE_CHANNEL, current)
-        except FloodWait as e:
-            await asyncio.sleep(e.value)
-            continue
-        except:
-            current += 1
-            continue
+# ================= YENİ MESAJ =================
+@app.on_message(filters.chat(SOURCE_CHANNEL))
+async def new_message(client, message: Message):
+    before = len(CACHE_DB)
 
-        if msg and msg.text:
-            links = extract_links(msg)
-            for title, url in links:
-                cache.append({
-                    "title": title,
-                    "url": url
-                })
+    await add_to_cache(message)
 
-        current += 1
+    after = len(CACHE_DB)
 
-    LAST_INDEXED_ID = last_msg_id + 1
-    print("Index tamamlandı. Cache:", len(cache))
+    print(f"Yeni içerik eklendi. Cache: {after - before}")
 
-
-# -------------------------------------------------
-# Yeni mesaj gelince otomatik cache
-# -------------------------------------------------
-@app.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
-async def auto_add(client, message):
-    links = extract_links(message)
-    for title, url in links:
-        cache.append({
-            "title": title,
-            "url": url
-        })
-    print("Yeni içerik eklendi. Cache:", len(cache))
-
-
-# -------------------------------------------------
-# Tüm gruplarda arama
-# -------------------------------------------------
-@app.on_message(filters.group & filters.text)
-async def search_handler(client, message):
-    if not cache:
-        return
-
-    query = normalize(message.text)
-    print("Arama:", query, "Cache:", len(cache))
+# ================= ARAMA =================
+@app.on_message(filters.private)
+async def search_handler(client, message: Message):
+    query = message.text.lower()
 
     results = []
 
-    for item in cache:
-        title_norm = normalize(item["title"])
-
-        if query in title_norm or title_norm in query:
-            results.append(f"[{item['title']}]({item['url']})")
+    for data in CACHE_DB.values():
+        if query in data["text"].lower():
+            results.append(f"[{data['text'][:40]}...]({data['link']})")
 
     if not results:
+        await message.reply("Sonuç bulunamadı.")
         return
 
     text = "Hangisini izlemek istiyorsun?\n\n"
     text += "\n".join(results[:10])
 
-    sent = await message.reply(
-        text,
-        disable_web_page_preview=True
-    )
+    await message.reply(text, disable_web_page_preview=True)
 
-    await asyncio.sleep(600)
-
-    try:
-        await sent.delete()
-        await message.delete()
-    except:
-        pass
-
-
-# -------------------------------------------------
-# MAIN
-# -------------------------------------------------
+# ================= MAIN =================
 async def main():
     await app.start()
-    print("Bot başladı.")
     await index_channel()
-    print("Bot aktif.")
+    print("Bot hazır.")
     await idle()
-
 
 app.run(main())
