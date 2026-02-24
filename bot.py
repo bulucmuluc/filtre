@@ -27,22 +27,34 @@ def normalize(text):
 
 
 # ---------------- KANAL CACHE ----------------
-@app.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
+@app.on_message(filters.chat(SOURCE_CHANNEL))
 async def cache_channel_messages(client, message):
+
+    raw_text = message.text or message.caption
+    if not raw_text:
+        return
+
+    print("KANAL MESAJI GELDİ:", raw_text)
 
     dizi_ismi = None
 
-    # 1️⃣ Eğer gerçek markdown formatı varsa
-    match = re.search(r"\[(.*?)\]\((.*?)\)", message.text or "")
+    # 1️⃣ Markdown formatı varsa
+    match = re.search(r"\[(.*?)\]\((.*?)\)", raw_text)
     if match:
         dizi_ismi = match.group(1)
 
-    # 2️⃣ Eğer Telegram text_link entity ise
-    elif message.entities:
-        for entity in message.entities:
-            if entity.type == "text_link":
-                dizi_ismi = message.text[entity.offset: entity.offset + entity.length]
-                break
+    # 2️⃣ Entity varsa (her tip)
+    elif message.entities or message.caption_entities:
+        entities = message.entities or message.caption_entities
+
+        for entity in entities:
+            # entity türü ne olursa olsun text kısmını al
+            dizi_ismi = raw_text[entity.offset: entity.offset + entity.length]
+            break
+
+    # 3️⃣ Hiçbiri yoksa düz yazıyı al
+    else:
+        dizi_ismi = raw_text
 
     if dizi_ismi:
         channel_cache[message.id] = {
@@ -59,6 +71,7 @@ async def delete_after_delay(client, chat_id, bot_msg_id, user_msg_id):
 
     try:
         await client.delete_messages(chat_id, [bot_msg_id, user_msg_id])
+        print("MESAJLAR SİLİNDİ")
     except Exception as e:
         print("SİLME HATASI:", e)
 
@@ -70,9 +83,14 @@ async def group_listener(client, message):
     user_text = normalize(message.text)
     user_words = user_text.split()
 
+    print("GRUP MESAJI:", user_text)
+    print("CACHE:", channel_cache)
+
     for data in channel_cache.values():
         for word in user_words:
             if word in data["name"]:
+
+                print("EŞLEŞME BULUNDU")
 
                 sent = await client.forward_messages(
                     chat_id=message.chat.id,
