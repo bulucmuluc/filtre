@@ -80,14 +80,32 @@ def extract_links_entity(message: Message):
 # ----------------------------
 # TÜM LINKLERİ ÇEK
 # ----------------------------
-def extract_links(message: Message):
-    links = []
+def extract_links(message):
+    results = []
 
-    links.extend(extract_links_regex(message))
-    links.extend(extract_links_entity(message))
+    text = message.text or message.caption or ""
 
-    return links
+    # 1️⃣ Entity içindeki linkler
+    if message.entities:
+        for entity in message.entities:
+            if entity.type == "text_link":
+                title = text[entity.offset: entity.offset + entity.length]
+                results.append((title, entity.url))
 
+            elif entity.type == "url":
+                url = text[entity.offset: entity.offset + entity.length]
+                results.append((url, url))
+
+    # 2️⃣ Markdown link
+    md_pattern = r"\[([^\]]+)\]\((https?://[^\)]+)\)"
+    results.extend(re.findall(md_pattern, text))
+
+    # 3️⃣ Düz URL
+    url_pattern = r"(https?://[^\s]+)"
+    for url in re.findall(url_pattern, text):
+        results.append((url, url))
+
+    return results
 # ----------------------------
 # KANALI INDEXLE
 # ----------------------------
