@@ -84,26 +84,22 @@ def extract_links(message):
     results = []
 
     text = message.text or message.caption or ""
+    if not text:
+        return results
 
-    # 1️⃣ Entity içindeki linkler
-    if message.entities:
-        for entity in message.entities:
-            if entity.type == "text_link":
-                title = text[entity.offset: entity.offset + entity.length]
-                results.append((title, entity.url))
-
-            elif entity.type == "url":
-                url = text[entity.offset: entity.offset + entity.length]
-                results.append((url, url))
-
-    # 2️⃣ Markdown link
-    md_pattern = r"\[([^\]]+)\]\((https?://[^\)]+)\)"
+    # 1️⃣ Markdown link
+    md_pattern = r"\[([^\]]+)\]\(([^)]+)\)"
     results.extend(re.findall(md_pattern, text))
 
-    # 3️⃣ Düz URL
-    url_pattern = r"(https?://[^\s]+)"
-    for url in re.findall(url_pattern, text):
+    # 2️⃣ http/https link
+    http_pattern = r"(https?://[^\s]+)"
+    for url in re.findall(http_pattern, text):
         results.append((url, url))
+
+    # 3️⃣ t.me link (http olmadan)
+    tme_pattern = r"(t\.me/[^\s]+)"
+    for url in re.findall(tme_pattern, text):
+        results.append((url, "https://" + url))
 
     return results
 # ----------------------------
