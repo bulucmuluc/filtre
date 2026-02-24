@@ -26,28 +26,31 @@ def normalize(text):
     return text.strip()
 
 
-# ---------------- BOT BAŞLADI ----------------
-@app.on_message(filters.all)
-async def debug_all(client, message):
-    print("GELEN MESAJ:", message.chat.id, message.text)
-
-
 # ---------------- KANAL CACHE ----------------
-@app.on_message(filters.chat(SOURCE_CHANNEL))
+@app.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
 async def cache_channel_messages(client, message):
-    print("KANAL MESAJI ALGILANDI")
 
-    if message.text:
-        match = re.search(r"\[(.*?)\]\((.*?)\)", message.text)
-        if match:
-            dizi_ismi = match.group(1)
+    dizi_ismi = None
 
-            channel_cache[message.id] = {
-                "name": normalize(dizi_ismi),
-                "message_id": message.id
-            }
+    # 1️⃣ Eğer gerçek markdown formatı varsa
+    match = re.search(r"\[(.*?)\]\((.*?)\)", message.text or "")
+    if match:
+        dizi_ismi = match.group(1)
 
-            print("CACHELENDİ:", dizi_ismi)
+    # 2️⃣ Eğer Telegram text_link entity ise
+    elif message.entities:
+        for entity in message.entities:
+            if entity.type == "text_link":
+                dizi_ismi = message.text[entity.offset: entity.offset + entity.length]
+                break
+
+    if dizi_ismi:
+        channel_cache[message.id] = {
+            "name": normalize(dizi_ismi),
+            "message_id": message.id
+        }
+
+        print("CACHELENDİ:", dizi_ismi)
 
 
 # ---------------- SİLME ----------------
@@ -56,7 +59,6 @@ async def delete_after_delay(client, chat_id, bot_msg_id, user_msg_id):
 
     try:
         await client.delete_messages(chat_id, [bot_msg_id, user_msg_id])
-        print("MESAJLAR SİLİNDİ")
     except Exception as e:
         print("SİLME HATASI:", e)
 
@@ -64,18 +66,13 @@ async def delete_after_delay(client, chat_id, bot_msg_id, user_msg_id):
 # ---------------- GRUP DİNLE ----------------
 @app.on_message(filters.group & filters.text)
 async def group_listener(client, message):
-    print("GRUP MESAJI ALGILANDI")
 
     user_text = normalize(message.text)
     user_words = user_text.split()
 
-    print("YAZILAN:", user_text)
-    print("CACHE:", channel_cache)
-
     for data in channel_cache.values():
         for word in user_words:
             if word in data["name"]:
-                print("EŞLEŞME BULUNDU")
 
                 sent = await client.forward_messages(
                     chat_id=message.chat.id,
