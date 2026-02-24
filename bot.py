@@ -26,9 +26,17 @@ def normalize(text):
     return text.strip()
 
 
+# ---------------- BOT BAŞLADI ----------------
+@app.on_message(filters.all)
+async def debug_all(client, message):
+    print("GELEN MESAJ:", message.chat.id, message.text)
+
+
 # ---------------- KANAL CACHE ----------------
 @app.on_message(filters.chat(SOURCE_CHANNEL))
 async def cache_channel_messages(client, message):
+    print("KANAL MESAJI ALGILANDI")
+
     if message.text:
         match = re.search(r"\[(.*?)\]\((.*?)\)", message.text)
         if match:
@@ -39,26 +47,35 @@ async def cache_channel_messages(client, message):
                 "message_id": message.id
             }
 
+            print("CACHELENDİ:", dizi_ismi)
 
-# ---------------- SİLME GÖREVİ ----------------
+
+# ---------------- SİLME ----------------
 async def delete_after_delay(client, chat_id, bot_msg_id, user_msg_id):
     await asyncio.sleep(600)
 
     try:
         await client.delete_messages(chat_id, [bot_msg_id, user_msg_id])
-    except:
-        pass
+        print("MESAJLAR SİLİNDİ")
+    except Exception as e:
+        print("SİLME HATASI:", e)
 
 
 # ---------------- GRUP DİNLE ----------------
 @app.on_message(filters.group & filters.text)
 async def group_listener(client, message):
+    print("GRUP MESAJI ALGILANDI")
+
     user_text = normalize(message.text)
     user_words = user_text.split()
+
+    print("YAZILAN:", user_text)
+    print("CACHE:", channel_cache)
 
     for data in channel_cache.values():
         for word in user_words:
             if word in data["name"]:
+                print("EŞLEŞME BULUNDU")
 
                 sent = await client.forward_messages(
                     chat_id=message.chat.id,
@@ -78,4 +95,5 @@ async def group_listener(client, message):
                 return
 
 
+print("BOT BAŞLADI")
 app.run()
