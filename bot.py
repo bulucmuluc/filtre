@@ -26,36 +26,60 @@ def normalize(text):
     return text.strip()
 
 
-# ---------------- KANAL CACHE ----------------
-@app.on_message(filters.chat(SOURCE_CHANNEL))
-async def cache_channel_messages(client, message):
-
+# ---------------- KANAL MESAJINDAN İSİM + LİNK ÇIKAR ----------------
+def extract_name_and_link(message):
     raw_text = message.text or message.caption
     if not raw_text:
-        return
+        return None, None
 
+    # 1️⃣ Markdown formatı
     match = re.search(r"\[(.*?)\]\((.*?)\)", raw_text)
-
     if match:
-        dizi_ismi = match.group(1)
-        link = match.group(2)
+        return match.group(1), match.group(2)
 
-        channel_cache[message.id] = {
-            "name": normalize(dizi_ismi),
-            "original_name": dizi_ismi,
-            "url": link
-        }
+    # 2️⃣ Telegram text_link entity
+    entities = message.entities or message.caption_entities
+    if entities:
+        for entity in entities:
+            if entity.type == "text_link":
+                name = raw_text[entity.offset: entity.offset + entity.length]
+                return name, entity.url
 
-        print("CACHELENDİ:", dizi_ismi)
+    return None, None
+
+
+# ---------------- BOT BAŞLANGIÇTA KANAL GEÇMİŞİNİ ÇEK ----------------
+async def load_channel_history():
+    async for message in app.get_chat_history(SOURCE_CHANNEL):
+        name, link = extract_name_and_link(message)
+        if name and link:
+            channel_cache[message.id] = {
+                "name": normalize(name),
+                "original_name": name,
+                "url": link
+            }
+    print("Kanal cache yüklendi:", len(channel_cache))
 
 
 # ---------------- SİLME ----------------
-async def delete_after_delay(client, chat_id, bot_msg_id, user_msg_id):
+async def delete_after_delay(chat_id, bot_msg_id, user_msg_id):
     await asyncio.sleep(600)
     try:
-        await client.delete_messages(chat_id, [bot_msg_id, user_msg_id])
+        await app.delete_messages(chat_id, [bot_msg_id, user_msg_id])
     except:
         pass
+
+
+# ---------------- KANAL YENİ MESAJLARI ----------------
+@app.on_message(filters.chat(SOURCE_CHANNEL))
+async def cache_new_messages(client, message):
+    name, link = extract_name_and_link(message)
+    if name and link:
+        channel_cache[message.id] = {
+            "name": normalize(name),
+            "original_name": name,
+            "url": link
+        }
 
 
 # ---------------- GRUP DİNLE ----------------
@@ -74,7 +98,6 @@ async def group_listener(client, message):
                 break
 
     if matches:
-
         response_text = "Hangisini izlemek istiyorsun?\n\n"
 
         for item in matches:
@@ -87,7 +110,6 @@ async def group_listener(client, message):
 
         asyncio.create_task(
             delete_after_delay(
-                client,
                 message.chat.id,
                 sent.id,
                 message.id
@@ -95,5 +117,13 @@ async def group_listener(client, message):
         )
 
 
-print("BOT BAŞLADI")
-app.run()
+# ---------------- ÇALIŞTIR ----------------
+async def main():
+    await app.start()
+    await load_channel_history()
+    print("BOT ÇALIŞIYOR")
+    await idle()
+
+from pyrogram import idle
+
+app.run(main())
