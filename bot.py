@@ -45,17 +45,14 @@ async def index_channel():
 
     print("INDEX BAŞLADI")
 
-    chat = await app.get_chat(SOURCE_CHANNEL)
-    last_msg_id = chat.last_message_id
+    last_msg = await app.get_messages(SOURCE_CHANNEL, -1)
+    last_msg_id = last_msg.id
 
     current = LAST_INDEXED_ID
 
     while current <= last_msg_id:
         try:
             msg = await app.get_messages(SOURCE_CHANNEL, current)
-        except FloodWait as e:
-            await asyncio.sleep(e.value)
-            continue
         except:
             current += 1
             continue
@@ -72,7 +69,6 @@ async def index_channel():
 
     LAST_INDEXED_ID = last_msg_id + 1
     print(f"Index bitti. Cache: {len(cache)}")
-
 
 # Yeni mesaj geldiğinde otomatik cache'e ekle
 @app.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
