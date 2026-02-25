@@ -22,7 +22,7 @@ db = mongo["dizi_db"]
 collection = db["diziler"]
 
 # ==============================
-# ÖZEL MESAJ KAYDETME
+# ÖZEL MESAJDAN DİZİ KAYDETME
 # ==============================
 @app.on_message(filters.private & filters.text)
 async def save_series(client, message):
@@ -51,7 +51,7 @@ async def save_series(client, message):
     await message.reply("✅ Dizi başarıyla kaydedildi.")
 
 # ==============================
-# GRUPTA ARAMA KOMUTU
+# GRUPTA /ARA KOMUTU
 # ==============================
 @app.on_message(filters.command("ara") & filters.group)
 async def search_series(client, message):
@@ -69,6 +69,7 @@ async def search_series(client, message):
         response += f"{item['text']}\n"
 
     if not response:
+        # Bu yanıt sadece grupta /ara için
         return await message.reply("❌ Sonuç bulunamadı.")
 
     await message.reply(response, disable_web_page_preview=True)
