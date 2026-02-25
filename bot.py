@@ -1,206 +1,81 @@
-import os
 import re
-import asyncio
-from dotenv import load_dotenv
+import os
 from pyrogram import Client, filters
 from pyrogram.types import Message
+from dotenv import load_dotenv
 
+# ================= ENV YÜKLE =================
 load_dotenv()
 
-API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-STRING_SESSION = os.getenv("STRING_SESSION")
+api_id = int(os.getenv("API_ID"))
+api_hash = os.getenv("API_HASH")
+bot_token = os.getenv("BOT_TOKEN")
 SOURCE_CHANNEL = int(os.getenv("SOURCE_CHANNEL"))
 
-bot = Client(
-    "bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
-)
+app = Client("dizi_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
 
-user = Client(
-    "user",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    session_string=STRING_SESSION
-)
+# {"tehran": ["[Tehran](link1)", "[Tehran 2](link2)"]}
+dizi_dict = {}
 
-cache = []
-indexed_ids = set()
 
-# ----------------------------
-# TÜRKÇE NORMALIZE
-# ----------------------------
-def normalize(text):
-    text = text.lower()
-    replacements = {
-        "ı": "i", "ş": "s", "ğ": "g",
-        "ü": "u", "ö": "o", "ç": "c"
-    }
-    for k, v in replacements.items():
-        text = text.replace(k, v)
-    return text
+# ================= DİZİ EKLE =================
+def add_series(text):
+    matches = re.findall(r"\[(.*?)\]\((.*?)\)", text)
+    for name, link in matches:
+        key = name.lower().strip()
+        formatted = f"[{name}]({link})"
 
-# ----------------------------
-# REGEX LINK YAKALAMA
-# ----------------------------
-def extract_links_regex(message: Message):
-    text = message.text or message.caption or ""
-    pattern = r"\[([^\]]+)\]\((https?://[^\)]+)\)"
-    return re.findall(pattern, text)
+        if key not in dizi_dict:
+            dizi_dict[key] = []
 
-# ----------------------------
-# ENTITY LINK YAKALAMA (ÖNEMLİ)
-# ----------------------------
-def extract_links_entity(message: Message):
-    results = []
+        if formatted not in dizi_dict[key]:
+            dizi_dict[key].append(formatted)
+            print(f"[EKLENDİ] {formatted}")
 
-    text = message.text or message.caption or ""
 
-    if message.entities:
-        for entity in message.entities:
-            if entity.type == "text_link":
-                start = entity.offset
-                end = start + entity.length
-                title = text[start:end]
-                results.append((title, entity.url))
+# ================= BAŞLANGIÇ YÜKLE =================
+async def load_series():
+    dizi_dict.clear()
 
-    if message.caption_entities:
-        for entity in message.caption_entities:
-            if entity.type == "text_link":
-                start = entity.offset
-                end = start + entity.length
-                title = text[start:end]
-                results.append((title, entity.url))
+    async for msg in app.get_chat_history(SOURCE_CHANNEL):
+        if msg.text:
+            add_series(msg.text)
 
-    return results
+    print(f"[INIT] Toplam anahtar sayısı: {len(dizi_dict)}")
 
-# ----------------------------
-# TÜM LINKLERİ ÇEK
-# ----------------------------
-def extract_links(message):
-    results = []
 
-    text = message.text or message.caption or ""
-    if not text:
-        return results
+# ================= KAYNAK KANAL CANLI =================
+@app.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
+async def source_listener(client, message: Message):
+    add_series(message.text)
+    print(f"[YENİ MESAJ - SOURCE] {message.text}")
 
-    # Sadece markdown formatı: [Başlık](link)
-    pattern = r"\[([^\]]+)\]\(([^)]+)\)"
 
-    matches = re.findall(pattern, text)
+# ================= TÜM GRUPLARDA ÇALIŞ =================
+@app.on_message(filters.group & filters.text)
+async def group_listener(client, message: Message):
+    text = message.text.lower()
+    bulunanlar = []
 
-    for title, url in matches:
-        url = url.strip()
+    for name in dizi_dict:
+        if name in text:
+            bulunanlar.extend(dizi_dict[name])
 
-        # Eğer http yoksa ekle
-        if not url.startswith("http"):
-            url = "https://" + url
+    if bulunanlar:
+        cevap = "Hangi diziyi izlemek istiyorsun?\n\n"
+        cevap += "\n".join(bulunanlar)
 
-        results.append((title.strip(), url))
+        await message.reply_text(
+            cevap,
+            disable_web_page_preview=True
+        )
 
-    return results
-# ----------------------------
-# KANALI INDEXLE
-# ----------------------------
-async def index_channel():
-    print("Index başlıyor...")
+        print("----- TETİKLENDİ -----")
+        print(f"Kullanıcı ID: {message.from_user.id if message.from_user else 'Anonim'}")
+        print(f"Grup: {message.chat.title}")
+        print(f"Mesaj: {message.text}")
+        print("----------------------")
 
-    await user.get_chat(SOURCE_CHANNEL)
 
-    async for msg in user.get_chat_history(SOURCE_CHANNEL):
-
-        if msg.id in indexed_ids:
-            continue
-
-        indexed_ids.add(msg.id)
-
-        links = extract_links(msg)
-
-        if links:
-            print(f"Mesaj {msg.id} bulundu: {links}")
-
-        for title, url in links:
-            if not any(x["url"] == url for x in cache):
-                cache.append({
-                    "title": title.strip(),
-                    "url": url.strip()
-                })
-
-    print("Index tamamlandı. Cache:", len(cache))
-
-# ----------------------------
-# YENİ MESAJLAR OTOMATİK
-# ----------------------------
-@user.on_message(filters.chat(SOURCE_CHANNEL))
-async def auto_cache(_, message):
-
-    if message.id in indexed_ids:
-        return
-
-    indexed_ids.add(message.id)
-
-    links = extract_links(message)
-
-    for title, url in links:
-        if not any(x["url"] == url for x in cache):
-            cache.append({
-                "title": title.strip(),
-                "url": url.strip()
-            })
-            print("Yeni içerik eklendi. Cache:", len(cache))
-
-# ----------------------------
-# GRUP ARAMA
-# ----------------------------
-@bot.on_message(filters.group & filters.text)
-async def search_handler(client, message):
-
-    if not cache:
-        return
-
-    query = normalize(message.text)
-    results = []
-
-    for item in cache:
-        if query in normalize(item["title"]):
-            results.append(f"[{item['title']}]({item['url']})")
-
-    if not results:
-        return
-
-    text = "Hangisini izlemek istiyorsun?\n\n"
-    text += "\n".join(results[:10])
-
-    sent = await message.reply(
-        text,
-        disable_web_page_preview=True
-    )
-
-    await asyncio.sleep(600)
-
-    try:
-        await sent.delete()
-        await message.delete()
-    except:
-        pass
-
-# ----------------------------
-# MAIN
-# ----------------------------
-async def main():
-    await user.start()
-    await bot.start()
-
-    print("Userbot + Bot başladı.")
-
-    await index_channel()
-
-    print("Sistem aktif.")
-
-    await asyncio.Event().wait()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+# ================= START =================
+app.run(load_series())
