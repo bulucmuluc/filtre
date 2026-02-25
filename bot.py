@@ -1,20 +1,36 @@
 import re
 import os
 import asyncio
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 from dotenv import load_dotenv
 
 # ================= ENV =================
 load_dotenv()
 
-api_id = int(os.getenv("API_ID"))
-api_hash = os.getenv("API_HASH")
-bot_token = os.getenv("BOT_TOKEN")
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+STRING_SESSION = os.getenv("STRING_SESSION")
 SOURCE_CHANNEL = int(os.getenv("SOURCE_CHANNEL"))
 
-app = Client("dizi_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
+# 🤖 Bot client (gruplar için)
+bot = Client(
+    "dizi_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
 
+# 👤 Userbot client (history çekmek için)
+user = Client(
+    "user_session",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    session_string=STRING_SESSION
+)
+
+# {"tehran": ["[Tehran](link1)", "[Tehran 2](link2)"]}
 dizi_dict = {}
 
 
@@ -33,24 +49,25 @@ def add_series(text):
             print(f"[EKLENDİ] {formatted}")
 
 
-# ================= BAŞLANGIÇ YÜKLE =================
-async def load_series():
-    async for msg in app.get_chat_history(SOURCE_CHANNEL):
+# ================= USERBOT - GEÇMİŞ YÜKLE =================
+async def load_history():
+    print("Geçmiş yükleniyor...")
+    async for msg in user.get_chat_history(SOURCE_CHANNEL):
         if msg.text:
             add_series(msg.text)
 
-    print(f"[INIT] Toplam anahtar: {len(dizi_dict)}")
+    print(f"Geçmiş yüklendi. Toplam anahtar: {len(dizi_dict)}")
 
 
-# ================= SOURCE CANLI =================
-@app.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
-async def source_listener(client, message: Message):
+# ================= USERBOT - CANLI DİNLE =================
+@user.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
+async def user_source_listener(client, message: Message):
     add_series(message.text)
-    print(f"[SOURCE YENİ] {message.text}")
+    print(f"[YENİ SOURCE] {message.text}")
 
 
-# ================= TÜM GRUPLAR =================
-@app.on_message(filters.group & filters.text)
+# ================= BOT - TÜM GRUPLAR =================
+@bot.on_message(filters.group & filters.text)
 async def group_listener(client, message: Message):
     text = message.text.lower()
     bulunanlar = []
@@ -76,14 +93,13 @@ async def group_listener(client, message: Message):
 
 # ================= MAIN =================
 async def main():
-    await app.start()
-    print("Bot başlatıldı.")
+    await user.start()
+    await bot.start()
 
-    await load_series()   # artık client start edildi
+    print("Userbot ve Bot başlatıldı.")
 
-    await idle()          # botu açık tut
+    await load_history()
 
-
-from pyrogram import idle
+    await idle()
 
 asyncio.run(main())
