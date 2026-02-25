@@ -33,9 +33,12 @@ async def save_series(client, message):
         return
 
     text = message.text.strip()
-    saved_count = 0
 
-    # Format: "Başlık""Link"
+    # Komutları kaydetme
+    if text.startswith("/"):
+        return
+
+    saved_count = 0
     matches = re.findall(r'"(.*?)""(.*?)"', text)
     for title, link in matches:
         title = title.strip()
@@ -58,7 +61,6 @@ async def save_series(client, message):
 
     if saved_count == 0:
         print(f"[PM] Mesajda kaydedilecek link bulunamadı: {text}")
-
 # -----------------------------
 # GRUPTA /ARA KOMUTU (min 2 karakter + max 30 sonuç)
 # -----------------------------
