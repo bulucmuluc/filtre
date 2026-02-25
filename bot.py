@@ -1,4 +1,3 @@
-import re
 import os
 import asyncio
 from pyrogram import Client, filters, idle
@@ -22,7 +21,7 @@ bot = Client(
     bot_token=BOT_TOKEN
 )
 
-# 👤 Userbot client (history çekmek için)
+# 👤 Userbot client (geçmiş ve canlı ekleme için)
 user = Client(
     "user_session",
     api_id=API_ID,
@@ -34,35 +33,39 @@ user = Client(
 dizi_dict = {}
 
 
-# ================= DİZİ EKLE =================
-def add_series(text):
-    matches = re.findall(r"\[(.*?)\]\((.*?)\)", text)
-    for name, link in matches:
-        key = name.lower().strip()
-        formatted = f"[{name}]({link})"
+# ================= DİZİ EKLEME =================
+def add_series(message: Message):
+    if not message.text or not message.entities:
+        return
 
-        if key not in dizi_dict:
-            dizi_dict[key] = []
+    for entity in message.entities:
+        if entity.type == "text_link":
+            name = message.text[entity.offset: entity.offset + entity.length]
+            link = entity.url
 
-        if formatted not in dizi_dict[key]:
-            dizi_dict[key].append(formatted)
-            print(f"[EKLENDİ] {formatted}")
+            key = name.lower().strip()
+            formatted = f"[{name}]({link})"
+
+            if key not in dizi_dict:
+                dizi_dict[key] = []
+
+            if formatted not in dizi_dict[key]:
+                dizi_dict[key].append(formatted)
+                print(f"[EKLENDİ] {formatted}")
 
 
 # ================= USERBOT - GEÇMİŞ YÜKLE =================
 async def load_history():
     print("Geçmiş yükleniyor...")
     async for msg in user.get_chat_history(SOURCE_CHANNEL):
-        if msg.text:
-            add_series(msg.text)
-
+        add_series(msg)
     print(f"Geçmiş yüklendi. Toplam anahtar: {len(dizi_dict)}")
 
 
 # ================= USERBOT - CANLI DİNLE =================
-@user.on_message(filters.chat(SOURCE_CHANNEL) & filters.text)
+@user.on_message(filters.chat(SOURCE_CHANNEL))
 async def user_source_listener(client, message: Message):
-    add_series(message.text)
+    add_series(message)
     print(f"[YENİ SOURCE] {message.text}")
 
 
@@ -100,6 +103,8 @@ async def main():
 
     await load_history()
 
-    await idle()
+    await idle()  # Botu açık tut
 
+
+# ================= START =================
 asyncio.run(main())
