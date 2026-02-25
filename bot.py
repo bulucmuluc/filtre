@@ -1,110 +1,77 @@
-import os
+import re
 import asyncio
-from pyrogram import Client, filters, idle
-from pyrogram.types import Message
+from pyrogram import Client, filters
+from motor.motor_asyncio import AsyncIOMotorClient
+from datetime import datetime
 from dotenv import load_dotenv
+import os
 
-# ================= ENV =================
+# .env yükle
 load_dotenv()
 
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-STRING_SESSION = os.getenv("STRING_SESSION")
-SOURCE_CHANNEL = int(os.getenv("SOURCE_CHANNEL"))
+MONGO_URI = os.getenv("MONGO_URI")
 
-# 🤖 Bot client (gruplar için)
-bot = Client(
-    "dizi_bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
-)
+app = Client("search_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# 👤 Userbot client (geçmiş ve canlı ekleme için)
-user = Client(
-    "user_session",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    session_string=STRING_SESSION
-)
+# Mongo bağlantı
+mongo = AsyncIOMotorClient(MONGO_URI)
+db = mongo["dizi_db"]
+collection = db["diziler"]
 
-# {"tehran": ["[Tehran](link1)", "[Tehran 2](link2)"]}
-dizi_dict = {}
+# ==============================
+# ÖZEL MESAJ KAYDETME
+# ==============================
+@app.on_message(filters.private & filters.text)
+async def save_series(client, message):
+    text = message.text
 
+    # Markdown link yakalama
+    match = re.search(r"\[(.*?)\]\((.*?)\)", text)
+    if not match:
+        return await message.reply("⚠️ Geçerli bir markdown link bulunamadı.")
 
-# ================= DİZİ EKLEME =================
-def add_series(message: Message):
-    if not message.text or not message.entities:
-        return
+    title = match.group(1)
+    link = match.group(2)
 
-    for entity in message.entities:
-        if entity.type == "text_link":
-            name = message.text[entity.offset: entity.offset + entity.length]
-            link = entity.url
+    # Aynı başlık varsa ekleme
+    exists = await collection.find_one({"title": title})
+    if exists:
+        return await message.reply("⚠️ Bu dizi zaten kayıtlı.")
 
-            key = name.lower().strip()
-            formatted = f"[{name}]({link})"
+    await collection.insert_one({
+        "title": title,
+        "text": text,
+        "link": link,
+        "date": datetime.utcnow()
+    })
 
-            if key not in dizi_dict:
-                dizi_dict[key] = []
+    await message.reply("✅ Dizi başarıyla kaydedildi.")
 
-            if formatted not in dizi_dict[key]:
-                dizi_dict[key].append(formatted)
-                print(f"[EKLENDİ] {formatted}")
+# ==============================
+# GRUPTA ARAMA KOMUTU
+# ==============================
+@app.on_message(filters.command("ara") & filters.group)
+async def search_series(client, message):
+    if len(message.command) < 2:
+        return await message.reply("❗ Kullanım: /ara dizi_adı")
 
+    query = " ".join(message.command[1:])
 
-# ================= USERBOT - GEÇMİŞ YÜKLE =================
-async def load_history():
-    print("Geçmiş yükleniyor...")
-    async for msg in user.get_chat_history(SOURCE_CHANNEL):
-        add_series(msg)
-    print(f"Geçmiş yüklendi. Toplam anahtar: {len(dizi_dict)}")
+    results = collection.find({
+        "title": {"$regex": query, "$options": "i"}
+    })
 
+    response = ""
+    async for item in results:
+        response += f"{item['text']}\n"
 
-# ================= USERBOT - CANLI DİNLE =================
-@user.on_message(filters.chat(SOURCE_CHANNEL))
-async def user_source_listener(client, message: Message):
-    add_series(message)
-    print(f"[YENİ SOURCE] {message.text}")
+    if not response:
+        return await message.reply("❌ Sonuç bulunamadı.")
 
+    await message.reply(response, disable_web_page_preview=True)
 
-# ================= BOT - TÜM GRUPLAR =================
-@bot.on_message(filters.group & filters.text)
-async def group_listener(client, message: Message):
-    text = message.text.lower()
-    bulunanlar = []
-
-    for name in dizi_dict:
-        if name in text:
-            bulunanlar.extend(dizi_dict[name])
-
-    if bulunanlar:
-        cevap = "Hangi diziyi izlemek istiyorsun?\n\n"
-        cevap += "\n".join(bulunanlar)
-
-        await message.reply_text(
-            cevap,
-            disable_web_page_preview=True
-        )
-
-        print("----- TETİKLENDİ -----")
-        print(f"Grup: {message.chat.title}")
-        print(f"Mesaj: {message.text}")
-        print("----------------------")
-
-
-# ================= MAIN =================
-async def main():
-    await user.start()
-    await bot.start()
-
-    print("Userbot ve Bot başlatıldı.")
-
-    await load_history()
-
-    await idle()  # Botu açık tut
-
-
-# ================= START =================
-asyncio.run(main())
+# ==============================
+app.run()
