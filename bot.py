@@ -29,13 +29,10 @@ collection = db["diziler"]
 @app.on_message(filters.private & filters.text)
 async def save_series(client, message):
     if message.from_user.id != OWNER_ID:
-        print(f"[PM] {message.from_user.id} ekleme yetkisi yok")
         return
 
     text = message.text.strip()
-
-    # Komutları kaydetme
-    if text.startswith("/"):
+    if text.startswith("/"):  # Komutları kaydetme
         return
 
     saved_count = 0
@@ -61,8 +58,9 @@ async def save_series(client, message):
 
     if saved_count == 0:
         print(f"[PM] Mesajda kaydedilecek link bulunamadı: {text}")
+
 # -----------------------------
-# GRUPTA /ARA KOMUTU (min 2 karakter + max 30 sonuç)
+# GRUPTA /ARA KOMUTU
 # -----------------------------
 @app.on_message(filters.command("ara") & filters.group)
 async def search_series(client, message):
@@ -81,18 +79,34 @@ async def search_series(client, message):
         response_lines.append(item['text'])
 
     total_results = len(response_lines)
+
     if total_results == 0:
-        return await message.reply("❌ Sonuç bulunamadı.")
+        response_text = "❌ Sonuç bulunamadı.\n\nBu mesaj 10 dakika sonra Silinecektir"
+        bot_msg = await message.reply(response_text, disable_web_page_preview=True)
+        await asyncio.sleep(20)
+        await message.delete()
+        await bot_msg.delete()
+        return
+
     if total_results > 30:
-        return await message.reply("⚠️ Arama yaptığın kelime çok kısa lütfen tam ismini yaz!")
+        response_text = "⚠️ Arama yaptığın kelime çok kısa lütfen tam ismini yaz!\n\nBu mesaj 10 dakika sonra Silinecektir"
+        bot_msg = await message.reply(response_text)
+        await asyncio.sleep(20)
+        await message.delete()
+        await bot_msg.delete()
+        return
 
     response_text = "Hangi Diziyi İzlemek İstiyorsun?\n\n" + "\n".join(response_lines)
-    await message.reply(response_text, disable_web_page_preview=True)
+    response_text += "\n\nBu mesaj 10 dakika sonra Silinecektir"
+    bot_msg = await message.reply(response_text, disable_web_page_preview=True)
+    await asyncio.sleep(20)
+    await message.delete()
+    await bot_msg.delete()
 
 # -----------------------------
-# /filtreler komutu (SADECE OWNER)
+# /filtreler (SADECE OWNER, private)
 # -----------------------------
-@app.on_message(filters.command("filtreler") & filters.private)
+@app.on_message(filters.command("filtreler") & filters.group)
 async def list_filters(client, message):
     if message.from_user.id != OWNER_ID:
         return
@@ -116,15 +130,12 @@ async def list_filters(client, message):
         await message.reply(text)
 
 # -----------------------------
-# /sil komutu (SADECE OWNER)
+# /sil "filtre ismi" (SADECE OWNER, private)
 # -----------------------------
-@app.on_message(filters.command("sil") & filters.private)
+@app.on_message(filters.command("sil") & filters.group)
 async def delete_filter(client, message):
     if message.from_user.id != OWNER_ID:
         return
-
-    if len(message.command) < 2:
-        return await message.reply("❗ Kullanım: /sil \"filtre ismi\"")
 
     match = re.search(r'"(.*?)"', message.text)
     if not match:
@@ -134,10 +145,19 @@ async def delete_filter(client, message):
     result = await collection.delete_one({"title": title})
     if result.deleted_count:
         await message.reply(f"✅ '{title}' filtreden silindi.")
-        print(f"[OWNER] '{title}' silindi")
     else:
         await message.reply(f"❌ '{title}' bulunamadı.")
-        print(f"[OWNER] '{title}' silinemedi, bulunamadı")
+
+# -----------------------------
+# /hepsinisil (SADECE OWNER, private)
+# -----------------------------
+@app.on_message(filters.command("hepsinisil") & filters.group)
+async def delete_all_filters(client, message):
+    if message.from_user.id != OWNER_ID:
+        return
+
+    result = await collection.delete_many({})
+    await message.reply(f"✅ Tüm filtreler silindi. ({result.deleted_count} kayıt)")
 
 # -----------------------------
 print("[BOT] Bot başlatıldı...")
