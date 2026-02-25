@@ -76,33 +76,33 @@ async def search_series(client, message):
 
     response_lines = []
     async for item in results:
-        response_lines.append(item['text'])
+        # Emoji + kalın + link
+        response_lines.append(f"**▪️ {item['text']}**")
 
     total_results = len(response_lines)
 
     if total_results == 0:
-        response_text = "❌ Sonuç bulunamadı.\n\nBu mesaj 10 dakika sonra Silinecektir"
+        response_text = "❌ Sonuç bulunamadı.\n\n❕Bu Mesaj 10 Dakika Sonra Silinecektir."
         bot_msg = await message.reply(response_text, disable_web_page_preview=True)
-        await asyncio.sleep(20)
+        await asyncio.sleep(600)
         await message.delete()
         await bot_msg.delete()
         return
 
     if total_results > 30:
-        response_text = "⚠️ Arama yaptığın kelime çok kısa lütfen tam ismini yaz!\n\nBu mesaj 10 dakika sonra Silinecektir"
+        response_text = "⚠️ Arama yaptığın kelime çok kısa lütfen tam ismini yaz!\n\n❕Bu Mesaj 10 Dakika Sonra Silinecektir."
         bot_msg = await message.reply(response_text)
-        await asyncio.sleep(20)
+        await asyncio.sleep(600)
         await message.delete()
         await bot_msg.delete()
         return
 
-    response_text = "Hangi Diziyi İzlemek İstiyorsun?\n\n" + "\n".join(response_lines)
-    response_text += "\n\nBu mesaj 10 dakika sonra Silinecektir"
+    response_text = "**Hangi Diziyi İzlemek İstiyorsun?**\n\n" + "\n".join(response_lines)
+    response_text += "\n\n❕Bu Mesaj 10 Dakika Sonra Silinecektir."
     bot_msg = await message.reply(response_text, disable_web_page_preview=True)
-    await asyncio.sleep(20)
+    await asyncio.sleep(600)
     await message.delete()
     await bot_msg.delete()
-
 # -----------------------------
 # /filtreler (SADECE OWNER, private)
 # -----------------------------
