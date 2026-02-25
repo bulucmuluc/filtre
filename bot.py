@@ -16,22 +16,24 @@ MONGO_URI = os.getenv("MONGO_URI")
 
 app = Client("search_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Mongo bağlantı
+# MongoDB bağlantısı
 mongo = AsyncIOMotorClient(MONGO_URI)
 db = mongo["dizi_db"]
 collection = db["diziler"]
 
 # ==============================
-# ÖZEL MESAJDAN DİZİ KAYDETME
+# ÖZEL MESAJDAN DİZİ KAYDETME (LOGLU)
 # ==============================
 @app.on_message(filters.private & filters.text)
 async def save_series(client, message):
     text = message.text
+    print(f"[PM] Yeni mesaj: {text}")  # Terminal log
 
     # Markdown link yakalama
     match = re.search(r"\[(.*?)\]\((.*?)\)", text)
     if not match:
-        return await message.reply("⚠️ Geçerli bir markdown link bulunamadı.")
+        print("[PM] Geçersiz format, kaydedilmedi")
+        return  # Sessiz geçiş
 
     title = match.group(1)
     link = match.group(2)
@@ -39,7 +41,8 @@ async def save_series(client, message):
     # Aynı başlık varsa ekleme
     exists = await collection.find_one({"title": title})
     if exists:
-        return await message.reply("⚠️ Bu dizi zaten kayıtlı.")
+        print(f"[PM] '{title}' zaten kayıtlı, atlandı")
+        return
 
     await collection.insert_one({
         "title": title,
@@ -47,18 +50,19 @@ async def save_series(client, message):
         "link": link,
         "date": datetime.utcnow()
     })
-
-    await message.reply("✅ Dizi başarıyla kaydedildi.")
+    print(f"[PM] '{title}' başarıyla kaydedildi")
 
 # ==============================
-# GRUPTA /ARA KOMUTU
+# GRUPTA /ARA KOMUTU (LOGLU)
 # ==============================
 @app.on_message(filters.command("ara") & filters.group)
 async def search_series(client, message):
     if len(message.command) < 2:
+        print(f"[GRUP] {message.chat.title}: Hatalı kullanım")
         return await message.reply("❗ Kullanım: /ara dizi_adı")
 
     query = " ".join(message.command[1:])
+    print(f"[GRUP] {message.chat.title}: Arama yapılıyor -> {query}")
 
     results = collection.find({
         "title": {"$regex": query, "$options": "i"}
@@ -69,10 +73,10 @@ async def search_series(client, message):
         response += f"{item['text']}\n"
 
     if not response:
-        # Bu yanıt sadece grupta /ara için
+        print(f"[GRUP] {message.chat.title}: Sonuç bulunamadı")
         return await message.reply("❌ Sonuç bulunamadı.")
 
+    print(f"[GRUP] {message.chat.title}: {len(response.splitlines())} sonuç bulundu")
     await message.reply(response, disable_web_page_preview=True)
 
-# ==============================
 app.run()
