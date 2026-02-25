@@ -1,4 +1,3 @@
-import re
 import asyncio
 from pyrogram import Client, filters
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -10,9 +9,9 @@ import os
 load_dotenv()
 
 API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-MONGO_URI = os.getenv("MONGO_URI")
+API_HASH = os.getenv("API_HASH"))
+BOT_TOKEN = os.getenv("BOT_TOKEN"))
+MONGO_URI = os.getenv("MONGO_URI"))
 
 app = Client("search_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
@@ -22,35 +21,38 @@ db = mongo["dizi_db"]
 collection = db["diziler"]
 
 # ==============================
-# ÖZEL MESAJDAN DİZİ KAYDETME (LOGLU)
+# ÖZEL MESAJDAN DİZİ KAYDETME (SESİZ + LOG)
 # ==============================
 @app.on_message(filters.private & filters.text)
 async def save_series(client, message):
-    text = message.text
-    print(f"[PM] Yeni mesaj: {text}")  # Terminal log
+    if not message.entities:
+        print(f"[PM] Mesajda entity yok, kaydedilmedi: {message.text}")
+        return  # Sessiz geç
 
-    # Markdown link yakalama
-    match = re.search(r"\[(.*?)\]\((.*?)\)", text)
-    if not match:
-        print("[PM] Geçersiz format, kaydedilmedi")
-        return  # Sessiz geçiş
+    saved_count = 0
+    for entity in message.entities:
+        if entity.type == "text_link" and entity.url:
+            # Entity text ve link al
+            title = message.text[entity.offset : entity.offset + entity.length].strip()
+            link = entity.url.strip()
 
-    title = match.group(1)
-    link = match.group(2)
+            # Aynı başlık varsa ekleme
+            exists = await collection.find_one({"title": title})
+            if exists:
+                print(f"[PM] '{title}' zaten kayıtlı, atlandı")
+                continue
 
-    # Aynı başlık varsa ekleme
-    exists = await collection.find_one({"title": title})
-    if exists:
-        print(f"[PM] '{title}' zaten kayıtlı, atlandı")
-        return
+            await collection.insert_one({
+                "title": title,
+                "text": f"[{title}]({link})",
+                "link": link,
+                "date": datetime.utcnow()
+            })
+            print(f"[PM] '{title}' başarıyla kaydedildi")
+            saved_count += 1
 
-    await collection.insert_one({
-        "title": title,
-        "text": text,
-        "link": link,
-        "date": datetime.utcnow()
-    })
-    print(f"[PM] '{title}' başarıyla kaydedildi")
+    if saved_count == 0:
+        print(f"[PM] Mesajda kaydedilecek text_link bulunamadı: {message.text}")
 
 # ==============================
 # GRUPTA /ARA KOMUTU (LOGLU)
@@ -79,4 +81,6 @@ async def search_series(client, message):
     print(f"[GRUP] {message.chat.title}: {len(response.splitlines())} sonuç bulundu")
     await message.reply(response, disable_web_page_preview=True)
 
+# ==============================
+print("[BOT] Bot başlatıldı...")
 app.run()
