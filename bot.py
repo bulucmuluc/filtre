@@ -27,48 +27,29 @@ collection = db["diziler"]
 # -----------------------------
 @app.on_message(filters.private & filters.text)
 async def save_series(client, message):
-    text = message.text
+    text = message.text.strip()
     saved_count = 0
 
-    # 1️⃣ Telegram text_link entity'lerini kaydet
-    for entity in message.entities or []:
-        if entity.type == "text_link" and entity.url:
-            title = message.text[entity.offset:entity.offset + entity.length].strip()
-            link = entity.url.strip()
-
-            exists = await collection.find_one({"title": title})
-            if exists:
-                print(f"[PM] '{title}' zaten kayıtlı, atlandı")
-                continue
-
-            await collection.insert_one({
-                "title": title,
-                "text": f"[{title}]({link})",
-                "link": link,
-                "date": datetime.utcnow()
-            })
-            print(f"[PM] '{title}' başarıyla kaydedildi")
-            saved_count += 1
-
-    # 2️⃣ Markdown linkleri regex ile yakala
-    markdown_links = re.findall(r"\[(.*?)\]\((.*?)\)", text)
-    for title, link in markdown_links:
+    # Yeni format: "Başlık""Link"
+    matches = re.findall(r'"(.*?)""(.*?)"', text)
+    for title, link in matches:
         title = title.strip()
         link = link.strip()
 
         # Daha önce kaydedilmiş mi kontrol et
         exists = await collection.find_one({"title": title})
         if exists:
-            print(f"[PM] '{title}' zaten kayıtlı (Markdown), atlandı")
+            print(f"[PM] '{title}' zaten kayıtlı, atlandı")
             continue
 
+        markdown_text = f"[{title}]({link})"
         await collection.insert_one({
             "title": title,
-            "text": f"[{title}]({link})",
+            "text": markdown_text,
             "link": link,
             "date": datetime.utcnow()
         })
-        print(f"[PM] '{title}' başarıyla kaydedildi (Markdown)")
+        print(f"[PM] '{title}' başarıyla kaydedildi")
         saved_count += 1
 
     if saved_count == 0:
