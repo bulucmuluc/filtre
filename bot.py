@@ -64,10 +64,27 @@ async def save_series(client, message):
 # -----------------------------
 @app.on_message(filters.command("ara") & filters.group)
 async def search_series(client, message):
+
+    # Argüman yoksa
     if len(message.command) < 2:
+        bot_msg = await message.reply(
+            "❌ Yanlış komut verdin dostum!\n\nÖrnek Komut:\n`/ara Squid Game`"
+        )
+        await asyncio.sleep(600)
+        await message.delete()
+        await bot_msg.delete()
         return
+
     query = " ".join(message.command[1:]).strip()
+
+    # 2 karakterden azsa
     if len(query) < 2:
+        bot_msg = await message.reply(
+            "❌ Yanlış komut verdin dostum!\n\nÖrnek Komut:\n`/ara Squid Game`"
+        )
+        await asyncio.sleep(600)
+        await message.delete()
+        await bot_msg.delete()
         return
 
     results = collection.find({
@@ -82,7 +99,7 @@ async def search_series(client, message):
     total_results = len(response_lines)
 
     if total_results == 0:
-        response_text = "❌ Sonuç bulunamadı.\n\n❕Bu Mesaj 10 Dakika Sonra Silinecektir."
+        response_text = "❌ Sonuç bulunamadı.Eklenmesini istediğin diziyi @diziadmin'e yaz.\n\n❕Bu Mesaj 10 Dakika Sonra Silinecektir."
         bot_msg = await message.reply(response_text, disable_web_page_preview=True)
         await asyncio.sleep(600)
         await message.delete()
