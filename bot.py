@@ -23,6 +23,12 @@ mongo = AsyncIOMotorClient(MONGO_URI)
 db = mongo["dizi_db"]
 collection = db["diziler"]
 
+async def delete_after_delay(client, chat_id, user_msg_id, bot_msg_id):
+    await asyncio.sleep(600)
+    try:
+        await client.delete_messages(chat_id, [user_msg_id, bot_msg_id])
+    except:
+        pass
 # -----------------------------
 # ÖZEL MESAJDAN DİZİ KAYDETME (SADECE OWNER)
 # -----------------------------
@@ -70,9 +76,10 @@ async def search_series(client, message):
         bot_msg = await message.reply(
             "❌ Yanlış komut verdin dostum!\n\nÖrnek Komut:\n`/ara Squid Game`"
         )
-        await asyncio.sleep(600)
-        await message.delete()
-        await bot_msg.delete()
+
+        asyncio.create_task(
+            delete_after_delay(client, message.chat.id, message.id, bot_msg.id)
+        )
         return
 
     query = " ".join(message.command[1:]).strip()
@@ -82,9 +89,10 @@ async def search_series(client, message):
         bot_msg = await message.reply(
             "❌ Yanlış komut verdin dostum!\n\nÖrnek Komut:\n`/ara Squid Game`"
         )
-        await asyncio.sleep(600)
-        await message.delete()
-        await bot_msg.delete()
+
+        asyncio.create_task(
+            delete_after_delay(client, message.chat.id, message.id, bot_msg.id)
+        )
         return
 
     results = collection.find({
@@ -93,33 +101,48 @@ async def search_series(client, message):
 
     response_lines = []
     async for item in results:
-        # Emoji + kalın + link
         response_lines.append(f"**▪️ {item['text']}**")
 
     total_results = len(response_lines)
 
     if total_results == 0:
-        response_text = "❌ Sonuç bulunamadı.Eklenmesini istediğin diziyi @diziadmin'e yaz.\n\n❕Bu Mesaj 10 Dakika Sonra Silinecektir."
+        response_text = (
+            "❌ Sonuç bulunamadı.\n"
+            "Eklenmesini istediğin diziyi @diziadmin'e yaz.\n\n"
+            "❕Bu Mesaj 10 Dakika Sonra Silinecektir."
+        )
+
         bot_msg = await message.reply(response_text, disable_web_page_preview=True)
-        await asyncio.sleep(600)
-        await message.delete()
-        await bot_msg.delete()
+
+        asyncio.create_task(
+            delete_after_delay(client, message.chat.id, message.id, bot_msg.id)
+        )
         return
 
     if total_results > 30:
-        response_text = "⚠️ Arama yaptığın kelime çok kısa lütfen tam ismini yaz!\n\n❕Bu Mesaj 10 Dakika Sonra Silinecektir."
+        response_text = (
+            "⚠️ Arama yaptığın kelime çok kısa lütfen tam ismini yaz!\n\n"
+            "❕Bu Mesaj 10 Dakika Sonra Silinecektir."
+        )
+
         bot_msg = await message.reply(response_text)
-        await asyncio.sleep(600)
-        await message.delete()
-        await bot_msg.delete()
+
+        asyncio.create_task(
+            delete_after_delay(client, message.chat.id, message.id, bot_msg.id)
+        )
         return
 
-    response_text = "**Hangi Diziyi İzlemek İstiyorsun?**\n\n" + "\n".join(response_lines)
-    response_text += "\n\n❕Bu Mesaj 10 Dakika Sonra Silinecektir."
+    response_text = (
+        "**Hangi Diziyi İzlemek İstiyorsun?**\n\n"
+        + "\n".join(response_lines)
+        + "\n\n❕Bu Mesaj 10 Dakika Sonra Silinecektir."
+    )
+
     bot_msg = await message.reply(response_text, disable_web_page_preview=True)
-    await asyncio.sleep(600)
-    await message.delete()
-    await bot_msg.delete()
+
+    asyncio.create_task(
+        delete_after_delay(client, message.chat.id, message.id, bot_msg.id)
+    )
 # -----------------------------
 # /filtreler (SADECE OWNER, private)
 # -----------------------------
